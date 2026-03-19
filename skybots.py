@@ -7,7 +7,6 @@ import time
 import subprocess
 import requests
 from datetime import datetime
-from pathlib import Path
 from seleniumbase import SB
 
 # ================= 配置区 =================
@@ -36,42 +35,60 @@ def send_tg_photo(caption, image_path):
     except Exception as e:
         print(f"⚠️ TG 推送失败: {e}")
 
-# 强制暴露隐藏的 CF 盾
+# 强制暴露隐藏的 CF 盾并解开所有 overflow 遮罩
 EXPAND_POPUP_JS = """
 (function() {
+    var turnstileInput = document.querySelector('input[name="cf-turnstile-response"]');
+    if (turnstileInput) {
+        var el = turnstileInput;
+        for (var i = 0; i < 20; i++) {
+            el = el.parentElement;
+            if (!el) break;
+            var style = window.getComputedStyle(el);
+            if (style.overflow === 'hidden' || style.overflowX === 'hidden' || style.overflowY === 'hidden') {
+                el.style.overflow = 'visible';
+            }
+            el.style.minWidth = 'max-content';
+        }
+    }
     var iframes = document.querySelectorAll('iframe');
     iframes.forEach(function(iframe) {
-        if (iframe.src && (iframe.src.includes('challenges.cloudflare.com') || iframe.src.includes('turnstile'))) {
-            iframe.style.width = '300px';
-            iframe.style.height = '65px';
-            iframe.style.minWidth = '300px';
-            iframe.style.visibility = 'visible';
-            iframe.style.opacity = '1';
-        }
+        iframe.style.visibility = 'visible';
+        iframe.style.opacity = '1';
     });
 })();
 """
 
-# 获取盾的绝对屏幕坐标
+# 获取盾的绝对屏幕坐标 (多重判定，顺藤摸瓜)
 def get_turnstile_coords(sb):
     return sb.execute_script("""
+        var getC = function(rect) {
+            var chromeBarHeight = window.outerHeight - window.innerHeight;
+            return {
+                x: Math.round(rect.x + 30) + (window.screenX || 0),
+                y: Math.round(rect.y + rect.height / 2) + (window.screenY || 0) + chromeBarHeight
+            };
+        };
+        
+        // 策略1: 找经典 iframe
         var iframes = document.querySelectorAll('iframe');
         for (var i = 0; i < iframes.length; i++) {
             var src = iframes[i].src || '';
-            if (src.includes('cloudflare') || src.includes('turnstile')) {
+            if (src.includes('cloudflare') || src.includes('turnstile') || src.includes('challenges')) {
                 var rect = iframes[i].getBoundingClientRect();
-                if (rect.width > 0 && rect.height > 0) {
-                    var screenX = window.screenX || 0;
-                    var screenY = window.screenY || 0;
-                    var outerHeight = window.outerHeight;
-                    var innerHeight = window.innerHeight;
-                    var chromeBarHeight = outerHeight - innerHeight;
-                    
-                    var abs_x = Math.round(rect.x + 30) + screenX;
-                    var abs_y = Math.round(rect.y + rect.height / 2) + screenY + chromeBarHeight;
-                    
-                    return {x: abs_x, y: abs_y};
-                }
+                if (rect.width > 30 && rect.height > 20) return getC(rect);
+            }
+        }
+        
+        // 策略2: 从隐藏的底层表单往上层容器找 (最稳妥)
+        var input = document.querySelector('input[name="cf-turnstile-response"]');
+        if (input) {
+            var container = input.parentElement;
+            for (var j = 0; j < 5; j++) {
+                if (!container) break;
+                var rect = container.getBoundingClientRect();
+                if (rect.width > 80 && rect.height > 20) return getC(rect);
+                container = container.parentElement;
             }
         }
         return null;
@@ -80,14 +97,12 @@ def get_turnstile_coords(sb):
 # 使用 Linux 底层工具进行物理点击
 def os_hardware_click(x, y):
     try:
-        # 激活浏览器窗口
         result = subprocess.run(["xdotool", "search", "--onlyvisible", "--class", "chrome"], capture_output=True, text=True)
         w_ids = result.stdout.strip().split('\n')
         if w_ids and w_ids[0]:
             subprocess.run(["xdotool", "windowactivate", w_ids[0]], stderr=subprocess.DEVNULL)
             time.sleep(0.2)
         
-        # 移动并点击
         os.system(f"xdotool mousemove {int(x)} {int(y)} click 1")
         print(f"👆 已使用 xdotool 物理点击屏幕坐标 ({x}, {y})")
         return True
@@ -106,14 +121,15 @@ def main():
         "uc": True, 
         "test": True, 
         "headless": False, 
-        "chromium_arg": "--disable-dev-shm-usage,--no-sandbox"
+        "chromium_arg": "--disable-dev-shm-usage,--no-sandbox,--start-maximized"
     }
     if PROXY:
         opts["proxy"] = PROXY
         print(f"🛡️ 使用代理: {PROXY}")
 
     with SB(**opts) as sb:
-        sb.set_window_size(1280, 720)
+        # 强制设置一个固定窗口大小，防止 xvfb 坐标偏移
+        sb.set_window_rect(0, 0, 1280, 720)
         
         try:
             print(f"🌐 访问目标网页: {TARGET_URL}")
@@ -124,7 +140,6 @@ def main():
                 print("✅ 似乎已经处于登录状态！")
             else:
                 print("🛡️ 正在解析登录表单...")
-                # 兼容不同输入框
                 user_sel = 'input[type="email"], input[name="email"], input[name="username"], input[type="text"]'
                 sb.wait_for_element(user_sel, timeout=30)
                 
@@ -137,21 +152,30 @@ def main():
                 sb.execute_script(EXPAND_POPUP_JS)
                 time.sleep(1)
 
-                # 尝试 4 次物理点击
+                # 尝试突破 CF 盾
                 for attempt in range(4):
                     is_done = sb.execute_script("var cf = document.querySelector(\"input[name='cf-turnstile-response']\"); return cf && cf.value.length > 20;")
                     if is_done:
                         print("✅ CF 盾底层验证已通过！")
                         break
                     
-                    coords = get_turnstile_coords(sb)
-                    if coords:
-                        os_hardware_click(coords['x'], coords['y'])
-                        print("⏳ 等待盾验证动画 (5秒)...")
+                    print(f"🖱️ 尝试验证 (第 {attempt + 1} 次)...")
+                    try:
+                        # 方案 A：使用 SeleniumBase 原生专杀工具
+                        sb.uc_gui_click_captcha()
+                        print("⏳ 触发原生点击过盾，等待动画 (5秒)...")
                         time.sleep(5)
-                    else:
-                        print("⚠️ 未找到盾的位置，等待重试...")
-                        time.sleep(3)
+                    except Exception as e:
+                        print(f"⚠️ 原生点击未触发: {e}")
+                        # 方案 B：使用获取坐标的底层硬件点击
+                        coords = get_turnstile_coords(sb)
+                        if coords:
+                            os_hardware_click(coords['x'], coords['y'])
+                            print("⏳ 等待盾验证动画 (5秒)...")
+                            time.sleep(5)
+                        else:
+                            print("⚠️ 仍未找到盾的位置，等待重试...")
+                            time.sleep(3)
 
                 print("📤 提交登录...")
                 sb.click('button[type="submit"], button:contains("Se connecter"), button:contains("Login")')
