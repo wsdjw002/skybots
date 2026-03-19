@@ -35,60 +35,42 @@ def send_tg_photo(caption, image_path):
     except Exception as e:
         print(f"⚠️ TG 推送失败: {e}")
 
-# 强制暴露隐藏的 CF 盾并解开所有 overflow 遮罩
+# 强制暴露隐藏的 CF 盾
 EXPAND_POPUP_JS = """
 (function() {
-    var turnstileInput = document.querySelector('input[name="cf-turnstile-response"]');
-    if (turnstileInput) {
-        var el = turnstileInput;
-        for (var i = 0; i < 20; i++) {
-            el = el.parentElement;
-            if (!el) break;
-            var style = window.getComputedStyle(el);
-            if (style.overflow === 'hidden' || style.overflowX === 'hidden' || style.overflowY === 'hidden') {
-                el.style.overflow = 'visible';
-            }
-            el.style.minWidth = 'max-content';
-        }
-    }
     var iframes = document.querySelectorAll('iframe');
     iframes.forEach(function(iframe) {
-        iframe.style.visibility = 'visible';
-        iframe.style.opacity = '1';
+        if (iframe.src && (iframe.src.includes('challenges.cloudflare.com') || iframe.src.includes('turnstile'))) {
+            iframe.style.width = '300px';
+            iframe.style.height = '65px';
+            iframe.style.minWidth = '300px';
+            iframe.style.visibility = 'visible';
+            iframe.style.opacity = '1';
+        }
     });
 })();
 """
 
-# 获取盾的绝对屏幕坐标 (多重判定，顺藤摸瓜)
+# 获取盾的绝对屏幕坐标
 def get_turnstile_coords(sb):
     return sb.execute_script("""
-        var getC = function(rect) {
-            var chromeBarHeight = window.outerHeight - window.innerHeight;
-            return {
-                x: Math.round(rect.x + 30) + (window.screenX || 0),
-                y: Math.round(rect.y + rect.height / 2) + (window.screenY || 0) + chromeBarHeight
-            };
-        };
-        
-        // 策略1: 找经典 iframe
         var iframes = document.querySelectorAll('iframe');
         for (var i = 0; i < iframes.length; i++) {
             var src = iframes[i].src || '';
-            if (src.includes('cloudflare') || src.includes('turnstile') || src.includes('challenges')) {
+            if (src.includes('cloudflare') || src.includes('turnstile')) {
                 var rect = iframes[i].getBoundingClientRect();
-                if (rect.width > 30 && rect.height > 20) return getC(rect);
-            }
-        }
-        
-        // 策略2: 从隐藏的底层表单往上层容器找 (最稳妥)
-        var input = document.querySelector('input[name="cf-turnstile-response"]');
-        if (input) {
-            var container = input.parentElement;
-            for (var j = 0; j < 5; j++) {
-                if (!container) break;
-                var rect = container.getBoundingClientRect();
-                if (rect.width > 80 && rect.height > 20) return getC(rect);
-                container = container.parentElement;
+                if (rect.width > 0 && rect.height > 0) {
+                    var screenX = window.screenX || 0;
+                    var screenY = window.screenY || 0;
+                    var outerHeight = window.outerHeight;
+                    var innerHeight = window.innerHeight;
+                    var chromeBarHeight = outerHeight - innerHeight;
+                    
+                    var abs_x = Math.round(rect.x + 30) + screenX;
+                    var abs_y = Math.round(rect.y + rect.height / 2) + screenY + chromeBarHeight;
+                    
+                    return {x: abs_x, y: abs_y};
+                }
             }
         }
         return null;
@@ -97,12 +79,14 @@ def get_turnstile_coords(sb):
 # 使用 Linux 底层工具进行物理点击
 def os_hardware_click(x, y):
     try:
+        # 激活浏览器窗口
         result = subprocess.run(["xdotool", "search", "--onlyvisible", "--class", "chrome"], capture_output=True, text=True)
         w_ids = result.stdout.strip().split('\n')
         if w_ids and w_ids[0]:
             subprocess.run(["xdotool", "windowactivate", w_ids[0]], stderr=subprocess.DEVNULL)
             time.sleep(0.2)
         
+        # 移动并点击
         os.system(f"xdotool mousemove {int(x)} {int(y)} click 1")
         print(f"👆 已使用 xdotool 物理点击屏幕坐标 ({x}, {y})")
         return True
@@ -121,6 +105,7 @@ def main():
         "uc": True, 
         "test": True, 
         "headless": False, 
+        "locale": "en", # 【核心】强制英文界面，匹配按钮文字
         "chromium_arg": "--disable-dev-shm-usage,--no-sandbox,--start-maximized"
     }
     if PROXY:
@@ -128,7 +113,7 @@ def main():
         print(f"🛡️ 使用代理: {PROXY}")
 
     with SB(**opts) as sb:
-        # 强制设置一个固定窗口大小，防止 xvfb 坐标偏移
+        # 强制 xvfb 窗口大小
         sb.set_window_rect(0, 0, 1280, 720)
         
         try:
@@ -140,6 +125,7 @@ def main():
                 print("✅ 似乎已经处于登录状态！")
             else:
                 print("🛡️ 正在解析登录表单...")
+                # 兼容不同输入框
                 user_sel = 'input[type="email"], input[name="email"], input[name="username"], input[type="text"]'
                 sb.wait_for_element(user_sel, timeout=30)
                 
@@ -166,7 +152,6 @@ def main():
                         print("⏳ 触发原生点击过盾，等待动画 (5秒)...")
                         time.sleep(5)
                     except Exception as e:
-                        print(f"⚠️ 原生点击未触发: {e}")
                         # 方案 B：使用获取坐标的底层硬件点击
                         coords = get_turnstile_coords(sb)
                         if coords:
@@ -178,7 +163,7 @@ def main():
                             time.sleep(3)
 
                 print("📤 提交登录...")
-                sb.click('button[type="submit"], button:contains("Se connecter"), button:contains("Login")')
+                sb.click('button[type="submit"], button:contains("Login")')
                 
                 print("⏳ 等待页面跳转...")
                 time.sleep(10)
@@ -191,27 +176,38 @@ def main():
             print("🚀 查找续期按键...")
             sb.sleep(3)
             
-            renew_selectors = ['button:contains("Renew")', 'a:contains("Renew")']
-            found_btn = False
-            
-            for sel in renew_selectors:
-                if sb.is_element_visible(sel):
-                    print("🔘 找到续期按键，点击续期...")
-                    sb.click(sel)
-                    found_btn = True
-                    break
-            
-            if found_btn:
-                print("⏳ 等待续期处理 (10秒)...")
-                sb.sleep(10)
-                shot_path = "renew_success.png"
-                sb.save_screenshot(shot_path)
-                send_tg_photo("🎉 续期按钮已找到并点击！(突破 Cloudflare 盾)", shot_path)
-            else:
-                print("⏰ 未找到续期按键。")
+            # 【高级容错逻辑】检测图 12 中的黄色提示消息
+            # 如果能找到 "Renewal will be available 3 days before expiration"
+            # 就意味着 Renew 按钮现在按规定不会出现。
+            too_early_sel = "//div[contains(., 'Renewal will be available 3 days before Expiration')]"
+            if sb.is_element_visible(too_early_sel):
+                print("⏰ 检测到'续期将于到期前 3 天提供'提示，暂无需续期。")
                 shot_path = "renew_not_needed.png"
                 sb.save_screenshot(shot_path)
-                send_tg_photo("⏰ 今日暂无需续期 (未找到 Renew 按键)。", shot_path)
+                send_tg_photo("⏰ 暂无需续期 (续期将于到期前 3 天提供)。", shot_path)
+            else:
+                renew_selectors = ['button:has-text("Renew")', 'a:has-text("Renew")']
+                found_btn = False
+                
+                for sel in renew_selectors:
+                    if sb.is_element_visible(sel):
+                        print("🔘 找到续期按键，点击续期...")
+                        sb.click(sel)
+                        found_btn = True
+                        break
+                
+                if found_btn:
+                    print("⏳ 等待续期处理 (10秒)...")
+                    sb.sleep(10)
+                    shot_path = "renew_success.png"
+                    sb.save_screenshot(shot_path)
+                    send_tg_photo("🎉 续期按钮已找到并点击！(突破 Cloudflare 盾)", shot_path)
+                else:
+                    # 这意味着既没有黄色提示框，也没有 Renew 按钮，可能出了问题，截图汇报。
+                    print("❌ 未检测到续期按键。")
+                    shot_path = "renew_error.png"
+                    sb.save_screenshot(shot_path)
+                    send_tg_photo("❌ 未检测到续期按键 (也未找到提前续期提示)。", shot_path)
 
         except Exception as e:
             print(f"❌ 运行报错: {e}")
