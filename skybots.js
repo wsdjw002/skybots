@@ -1,4 +1,4 @@
-// skybots.js
+// skybots.js - 完整修复版 (对付 CF 盾)
 const { chromium } = require('playwright-extra'); 
 const stealth = require('puppeteer-extra-plugin-stealth')(); 
 chromium.use(stealth); 
@@ -114,11 +114,13 @@ async function main() {
 
     const context = await browser.newContext(contextOptions);
     const page = await context.newPage();
-    page.setDefaultTimeout(45000); 
+    // 增加默认超时，给过盾留出时间
+    page.setDefaultTimeout(60000); 
 
     try {
         console.log(`🌐 访问目标网页: ${TARGET_URL}`);
-        await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' });
+        // 增加 waitUntil 容错
+        await page.goto(TARGET_URL, { waitUntil: 'load' });
 
         // 1. 判断是否已经免密登录
         await page.waitForTimeout(5000); 
@@ -128,9 +130,10 @@ async function main() {
         } else {
             console.log('🛡️ 正在解析登录页面...');
             
-            // 👈 升级 1：使用多重选择器，兼容 text, email, username 等各种写法的输入框
+            // 使用多重选择器，兼容各种写法的输入框
             const accountInput = page.locator('input[type="email"], input[name="email"], input[name="username"], input[type="text"]').first();
-            await accountInput.waitFor({ state: 'visible', timeout: 60000 });
+            // 降低输入框加载超时
+            await accountInput.waitFor({ state: 'visible', timeout: 30000 });
             console.log('✅ 登录表单已加载！');
 
             if (!ACCOUNT || !PASSWORD) throw new Error('❌ 未配置 SKYBOTS secrets');
@@ -139,35 +142,42 @@ async function main() {
             await accountInput.fill(ACCOUNT);
             await page.locator('input[type="password"], input[name="password"]').first().fill(PASSWORD);
             
-            // 👈 升级 2：对付 CF Turnstile 验证框
-            console.log('🛡️ 尝试处理 Cloudflare 验证框...');
-            await page.waitForTimeout(2000); // 稍微等盾加载稳
+            // 👈 升级核心点：强化 Cloudflare 验证框处理
+            console.log('🛡️ 尝试处理 Cloudflare 验证框 (等待加载)...');
+            // 给盾留更多加载时间
+            await page.waitForTimeout(4000); 
+
+            let cfClicked = false;
             try {
-                // 寻找包含 challenges 或 turnstile 的 iframe
-                const cfIframe = page.locator('iframe[src*="challenges"], iframe[src*="turnstile"]').first();
-                if (await cfIframe.isVisible({ timeout: 5000 })) {
+                // 寻找包含 common Turnstile/challenges patterns 的 iframe，使用更宽泛的选择器
+                const cfIframe = page.locator('iframe[src*="challenges"], iframe[src*="turnstile"], iframe[title*="Cloudflare"]').first();
+                if (await cfIframe.isVisible({ timeout: 10000 })) { // 增加检测超时
                     console.log('👆 发现 CF 验证框，尝试模拟鼠标点击...');
                     const box = await cfIframe.boundingBox();
                     if (box) {
                         // 将鼠标移动到 iframe 的正中心并点击
                         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-                        console.log('⏳ 等待 CF 验证打钩 (5秒)...');
-                        await page.waitForTimeout(5000); 
+                        cfClicked = true;
+                        console.log('⏳ 等待 CF 验证打钩 (8秒)...');
+                        await page.waitForTimeout(8000); // 给打钩留更多时间
+                    } else {
+                        console.log('⚠️ 无法获取 CF 验证框坐标');
                     }
                 } else {
                     console.log('未检测到需要点击的 CF 验证框，继续...');
                 }
             } catch (e) {
-                console.log('⚠️ CF 验证框处理跳过 (可能并未出现)');
+                console.log('⚠️ CF 验证框处理跳过 (可能并未出现): ' + e.message);
             }
 
             console.log('📤 提交登录请求...');
-            // 兼容法文 Se connecter 和英文 Login
+            // 兼容多语言登录按钮
             await page.locator('button[type="submit"], button:has-text("Se connecter"), button:has-text("Login")').first().click();
 
             console.log('⏳ 等待页面跳转确认登录成功...');
+            // 降低跳转超时
             await page.waitForURL(/projects/, { timeout: 20000 });
-            console.log(`✅ 登录成功！`);
+            console.log(`✅ 登录成功！当前页面: ${page.url()}`);
             
             console.log('💾 保存最新会话状态...');
             await context.storageState({ path: STATE_FILE });
@@ -178,6 +188,7 @@ async function main() {
         // ==========================================
         console.log('🚀 开始执行续期检测逻辑...');
         
+        // 确保页面加载完成，防止 Renew 按钮未渲染出来
         await page.waitForLoadState('networkidle'); 
         await page.waitForTimeout(3000); 
 
@@ -193,7 +204,11 @@ async function main() {
             
             const shotPath = 'renew_success.png';
             await page.screenshot({ path: shotPath, fullPage: true });
-            await sendTGPhoto('🎉 续期按钮已找到并点击！今日续期完成，请查看结果截图。', shotPath);
+            
+            let capStr = '🎉 续期按钮已找到并点击！今日续期完成，请查看结果截图。';
+            // 如果尝试点击过 CF 盾，在 TG  caption 里加个提示，方便确认脚本行为
+            if (cfClicked) capStr += '\n(脚本尝试点击了 Cloudflare 验证框)';
+            await sendTGPhoto(capStr, shotPath);
             console.log('🎉 续期流程处理完毕，已发送图片通知。');
 
         } else {
@@ -201,16 +216,21 @@ async function main() {
             
             const shotPath = 'renew_not_needed.png';
             await page.screenshot({ path: shotPath, fullPage: true });
-            await sendTGPhoto('⏰ 今日暂无需续期 (未找到 Renew 按键)。', shotPath);
+            
+            let capStr = '⏰ 今日暂无需续期 (未找到 Renew 按键)。';
+            if (cfClicked) capStr += '\n(脚本尝试点击了 Cloudflare 验证框)';
+            await sendTGPhoto(capStr, shotPath);
             console.log('⏰ 已发送暂无需续期通知。');
         }
 
     } catch (error) {
+        // 全局异常捕捉，发送失败截图
         console.error(`❌ 脚本执行异常: ${error.message}`);
         const errPath = 'skybots_error.png';
         await page.screenshot({ path: errPath, fullPage: true });
+        // 脚本本身报错，也通知 TG
         await sendTGPhoto(`❌ 脚本运行出错了: ${error.message}`, errPath);
-        throw error; 
+        throw error; // 仍然抛出，让 Action 变红
     } finally {
         await context.close();
         await browser.close();
