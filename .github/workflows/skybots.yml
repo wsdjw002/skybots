@@ -41,7 +41,8 @@ jobs:
           chmod +x gost-linux-amd64-2.11.5
           nohup ./gost-linux-amd64-2.11.5 -L :8080 -F "$skybots_PROXY_NODE" > gost.log 2>&1 &
           sleep 5
-          echo "PROXY_URL=socks5://127.0.0.1:8080" >> $GITHUB_ENV
+          # 将生成的本地 socks5 代理地址传给 Python 脚本对应的变量
+          echo "skybots_PROXY_NODE=socks5://127.0.0.1:8080" >> $GITHUB_ENV
 
       - name: 🚀 运行 Skybots Python 脚本
         env:
