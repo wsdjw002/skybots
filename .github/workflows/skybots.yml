@@ -8,6 +8,9 @@ jobs:
   run_renewal:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # 新增权限：允许 GitHub 令牌对当前仓库的 Actions 记录进行删除操作
+    permissions:
+      actions: write
 
     steps:
       - name: 📥 拉取代码
@@ -54,10 +57,9 @@ jobs:
           # 使用 xvfb-run 分配虚拟屏幕，让 xdotool 能够正常点击
           xvfb-run -a python skybots.py
 
-#      - name: 📸 上传报错截图
-#        if: always()
-#        uses: actions/upload-artifact@v4
-#        with:
-#         name: skybots-debug-png
-#         path: "*.png"
-#         retention-days: 5
+      - name: 🗑️ 清理旧工作流记录 (仅保留最近 5 个)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 仅针对当前工作流，列出所有运行记录 ID，跳过前 5 个，然后逐个删除
+          gh run list --workflow "${{ github.workflow }}" --json databaseId -q '.[5:][].databaseId' | xargs -r -I{} gh run delete "{}" || true
