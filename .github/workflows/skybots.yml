@@ -33,13 +33,13 @@ jobs:
 
       - name: 🛡️ 启动 GOST 代理隧道
         env:
-          GOST_PROXY: ${{ secrets.GOST_PROXY }}
+          skybots_PROXY_NODE: ${{ secrets.skybots_PROXY_NODE }}
         run: |
-          if [ -z "$GOST_PROXY" ]; then exit 0; fi
+          if [ -z "$skybots_PROXY_NODE" ]; then exit 0; fi
           wget -q https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz
           gunzip gost-linux-amd64-2.11.5.gz
           chmod +x gost-linux-amd64-2.11.5
-          nohup ./gost-linux-amd64-2.11.5 -L :8080 -F "$GOST_PROXY" > gost.log 2>&1 &
+          nohup ./gost-linux-amd64-2.11.5 -L :8080 -F "$skybots_PROXY_NODE" > gost.log 2>&1 &
           sleep 5
           echo "PROXY_URL=socks5://127.0.0.1:8080" >> $GITHUB_ENV
 
@@ -54,7 +54,7 @@ jobs:
           xvfb-run -a python skybots.py
 
 #      - name: 📸 上传报错截图
-#       if: always()
+#        if: always()
 #        uses: actions/upload-artifact@v4
 #        with:
 #         name: skybots-debug-png
