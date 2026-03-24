@@ -53,10 +53,10 @@ jobs:
           # 使用 xvfb-run 分配虚拟屏幕，让 xdotool 能够正常点击
           xvfb-run -a python skybots.py
 
-      - name: 📸 上传报错截图
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: skybots-debug-png
-          path: "*.png"
-          retention-days: 5
+#      - name: 📸 上传报错截图
+#       if: always()
+#        uses: actions/upload-artifact@v4
+#        with:
+#         name: skybots-debug-png
+#         path: "*.png"
+#         retention-days: 5
