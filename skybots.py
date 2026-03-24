@@ -15,7 +15,7 @@ DASHBOARD_URL = "https://dash.skybots.tech/projects"
 
 ACCOUNT = os.environ.get("SKYBOTS_ACCOUNT", "")
 PASSWORD = os.environ.get("SKYBOTS_PASSWORD", "")
-skybots_PROXY_NODE = os.environ.get("skybots_PROXY_NODE", "").strip()
+PROXY = os.environ.get("PROXY_URL", "")
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
@@ -108,13 +108,9 @@ def main():
         "locale": "en", 
         "chromium_arg": "--disable-dev-shm-usage,--no-sandbox,--start-maximized"
     }
-    
-    # 注入代理逻辑
-    if skybots_PROXY_NODE:
-        opts["proxy"] = skybots_PROXY_NODE
-        print("🛡️ 已启用代码级代理: ***")
-    else:
-        print("🛡️ 未检测到代理配置，将直连运行")
+    if PROXY:
+        opts["proxy"] = PROXY
+        print(f"🛡️ 使用代理: {PROXY}")
 
     with SB(**opts) as sb:
         # 强制 xvfb 窗口大小
@@ -155,7 +151,7 @@ def main():
                         sb.uc_gui_click_captcha()
                         print("⏳ 触发原生点击过盾，等待动画 (5秒)...")
                         time.sleep(5)
-                    except Exception:
+                    except Exception as e:
                         # 方案 B：使用获取坐标的底层硬件点击
                         coords = get_turnstile_coords(sb)
                         if coords:
@@ -180,7 +176,7 @@ def main():
             print("🚀 等待页面数据加载并查找续期按键...")
             sb.sleep(8) 
             
-            # 【高级容错逻辑】检测黄色提示消息
+            # 【高级容错逻辑】检测图 12 中的黄色提示消息
             too_early_sel = "//div[contains(., 'Renewal will be available 3 days before Expiration')]"
             if sb.is_element_visible(too_early_sel):
                 print("⏰ 检测到'续期将于到期前 3 天提供'提示，暂无需续期。")
@@ -215,11 +211,13 @@ def main():
                     # ================= 新增：读取剩余时间 =================
                     expire_time_text = "未知 (提取失败)"
                     try:
-                        # 使用 XPath 查找包含 "Expire"（兼容英文 Expires 和法语 Expire）的节点
+                        # 使用 XPath 查找包含 "Expire"（兼容英文 Expires 和法语 Expire）的节点，
+                        # 并获取它父级容器的文本（这样可以把 "Expire dans" 和 "4j 17h" 一起抓出来）
                         expire_element = sb.wait_for_element('//*[contains(text(), "Expire")]/..', timeout=5)
+                        # 将换行符替换为空格，让文本更紧凑，例如 "Expire dans 4j 17h"
                         expire_time_text = expire_element.text.replace('\n', ' ').strip()
                         print(f"⏱️ 抓取到的当前剩余时间: {expire_time_text}")
-                    except Exception:
+                    except Exception as e:
                         print("⚠️ 无法在页面上找到剩余时间文本。")
                     # ====================================================
 
