@@ -8,6 +8,10 @@ jobs:
   run_renewal:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # 注意：需要为 GITHUB_TOKEN 添加写入权限才能删除历史记录
+    permissions:
+      actions: write
+      contents: read
 
     steps:
       - name: 📥 拉取代码
@@ -53,10 +57,19 @@ jobs:
           # 使用 xvfb-run 分配虚拟屏幕，让 xdotool 能够正常点击
           xvfb-run -a python skybots.py
 
-#      - name: 📸 上传报错截图
-#       if: always()
-#        uses: actions/upload-artifact@v4
-#        with:
-#         name: skybots-debug-png
-#         path: "*.png"
-#         retention-days: 5
+      # (可选) 如果你还需要上传报错截图并保留 5 天，可以取消下方注释
+      # - name: 📸 上传报错截图
+      #   if: always()
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: skybots-debug-png
+      #     path: "*.png"
+      #     retention-days: 5
+
+      - name: 🧹 清理旧的运行记录 (仅保留最近 5 个)
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 5
