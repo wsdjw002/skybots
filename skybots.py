@@ -6,12 +6,12 @@ import requests
 from datetime import datetime
 from seleniumbase import SB
 
-TARGET_URL = "https://dash.***/login"
-DASHBOARD_URL = "https://dash.***/projects"
+TARGET_URL = "https://dash.skybots.tech/login"
+DASHBOARD_URL = "https://dash.skybots.tech/projects"
 
-ACCOUNT = os.environ.get("***_ACCOUNT", "")
-PASSWORD = os.environ.get("***_PASSWORD", "")
-PROXY = os.environ.get("***_URL", "")
+ACCOUNT = os.environ.get("SKYBOTS_ACCOUNT", "")
+PASSWORD = os.environ.get("SKYBOTS_PASSWORD", "")
+PROXY = os.environ.get("PROXY_URL", "")
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
@@ -26,7 +26,7 @@ def send_tg_photo(caption, image_path):
         url = f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto"
         with open(image_path, "rb") as f:
             requests.post(url, data={"chat_id": TG_CHAT_ID, "caption": f"[Bot] {now_str()}\n{caption}"}, files={"photo": f}, timeout=30)
-        print("TG push success!")
+        print("TG push success")
     except Exception as e:
         print(f"TG push failed: {e}")
 
@@ -99,13 +99,13 @@ def main():
     }
     if PROXY:
         opts["proxy"] = PROXY
-        print(f"Using proxy: {PROXY}")
+        print("Using proxy")
 
     with SB(**opts) as sb:
         sb.set_window_rect(0, 0, 1280, 720)
         
         try:
-            print(f"Accessing: {TARGET_URL}")
+            print("Accessing URL")
             sb.uc_open_with_reconnect(TARGET_URL, reconnect_time=6)
             time.sleep(5)
 
