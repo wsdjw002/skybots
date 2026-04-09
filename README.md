@@ -10,9 +10,11 @@
 | `SKYBOTS_PASSWORD`| ✅ | **Skybots 登录密码**<br>您用于登录面板的密码。 |
 | `TG_BOT_TOKEN`    | ✅ | **Telegram Bot Token**<br>用于发送续期结果和截图。向 [@BotFather](https://t.me/BotFather) 申请机器人获取。<br>*(示例: `123456789:ABCdefGhIJKlmNoPQRstuVWXyz`)* |
 | `TG_CHAT_ID`      | ✅ | **Telegram Chat ID**<br>接收通知的账号或群组 ID。可向 [@userinfobot](https://t.me/userinfobot) 发送消息获取。<br>*(示例: `123456789`)* |
+| `REPO_TOKEN`      | ✅ | **GitHub 个人访问令牌 (PAT)**<br>核心权限：由于脚本具备“智能修改下一次运行时间”的黑科技功能，需要此 Token 才能将修改后的 `yml` 文件推送到仓库。<br>**[获取方法]** 访问 GitHub 设置 -> Developer settings -> Personal access tokens (classic) -> Generate new token。**必须勾选 `repo` 和 `workflow` 两个权限**。 |
 | `GOST_PROXY`      | 选填 | **代理节点链接 (防封锁)**<br>如果不填，脚本将使用 GitHub 默认网络直连。如果遇到频繁的网络屏蔽，可填入您的代理节点。<br>*(示例: `socks5://127.0.0.1:1080`)* |
 
 > **💡 提示：** > 所有的 Secret 变量在保存后都会被完全加密隐藏，即使是仓库所有者也无法再次查看明文，请放心填写。
+
 ---
 
 ### ⚠️ 免责声明
