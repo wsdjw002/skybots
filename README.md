@@ -259,11 +259,6 @@ MIT License
 
 ---
 
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-⭐ 如果对你有帮助，请点个 Star 支持一下！
 
 ---
 
